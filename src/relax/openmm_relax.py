@@ -14,8 +14,38 @@ from openff.toolkit import Molecule
 from openff.toolkit.utils.exceptions import UndefinedStereochemistryError, RadicalsNotSupportedError
 from openmm import CustomExternalForce
 import time
+from Bio import PDB
 
 ###########Functions##########
+def removeHs(pdbfile):
+    '''Function that reads in a pdb file and removes all hydrogens using biopython
+        writes the pdb file back to the same file
+    '''
+    # create a PDB parser 
+    parser = PDB.PDBParser()
+    # read in the pdb file
+    structure = parser.get_structure('protein', pdbfile)
+    # create a PDBIO object
+    io = PDB.PDBIO()
+    
+    class NonHydrogenSelector(PDB.Select):
+        def accept_atom(self, atom):
+            return atom.element != 'H'
+    
+    io.set_structure(structure)
+    io.save(pdbfile, select=NonHydrogenSelector())
+
+def fixPDB2(pdbfile):
+    '''Function that reads in a pdb file and returns the topology and positions
+    '''
+    forcefield = mm_app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
+    pdb = PDBFile(pdbfile)
+    modeller = Modeller(pdb.topology, pdb.positions)
+    modeller.addHydrogens(forcefield, pH=7.0)
+    topology = modeller.getTopology()
+    positions = modeller.getPositions()
+    return topology, positions
+
 def fix_pdb(
         pdbname,
         outdir,
@@ -30,8 +60,9 @@ def fix_pdb(
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
     fixer.addMissingHydrogens(7.0)
-    mm_app.PDBFile.writeFile(fixer.topology, fixer.positions, open(f'{outdir}/{file_name}_hydrogen_added.pdb', 'w'))
-    return fixer.topology, fixer.positions
+    pdbFix = f'{outdir}/{file_name}_fix1.pdb'
+    mm_app.PDBFile.writeFile(fixer.topology, fixer.positions, open(pdbFix, 'w'))
+    return pdbFix, fixer.topology, fixer.positions
 
 def set_system(topology):
     """
@@ -144,8 +175,12 @@ if __name__ == "__main__":
     # Assigning partial charges first because the default method (am1bcc) does not work
     ligand_mol.assign_partial_charges(partial_charge_method='gasteiger')
 
+    # remove all hydrogens from input_pdb
+    removeHs(input_pdb)
+    
     ## Read protein PDB and add hydrogens
-    protein_topology, protein_positions = fix_pdb(input_pdb, outdir, file_name)
+    pdbFix, protein_topology, protein_positions = fix_pdb(input_pdb, outdir, file_name)
+    #protein_topology, protein_positions = fixPDB2(pdbFix)
     print('Added all atoms...')
 
     # Minimize energy for the protein
@@ -179,7 +214,7 @@ if __name__ == "__main__":
     # forcefield_kwargs = {'constraints': mm_app.HBonds, 'rigidWater': True, 'removeCMMotion': False, 'hydrogenMass': 4*mm_unit.amu }
     system_generator = SystemGenerator(
         forcefields=['amber14-all.xml', 'implicit/gbn2.xml'],
-        small_molecule_forcefield='gaff-2.11',
+        small_molecule_forcefield='openff-1.2.0',
         molecules=[ligand_mol],
         # forcefield_kwargs=forcefield_kwargs
     )

@@ -16,9 +16,17 @@ parser = argparse.ArgumentParser(description = """Align a conformer generated fr
 
 parser.add_argument('--pred_pdb', nargs=1, type= str, default=sys.stdin, help = 'Path to input pdb file with predicted protein-ligand positions.')
 parser.add_argument('--ligand_smiles', nargs=1, type= str, default=sys.stdin, help = 'ligand smiles string.')
+parser.add_argument('--ligand_sdf', nargs=1, type= str, default=sys.stdin, help = 'ligand sdf file.')
 parser.add_argument('--outdir', nargs=1, type= str, default=sys.stdin, help = 'Path to output directory. Include /in end')
 
 ##############FUNCTIONS##############
+
+def sdf_to_smiles(input_sdf):
+    """Read sdf and convert to SMILES
+    """
+    with Chem.SDMolSupplier(input_sdf) as suppl:
+        for mol in suppl:
+            return AllChem.MolToSmiles(mol)
 
 def read_pdb(pred_pdb):
     """Read PDB and return atom types and positions
@@ -190,14 +198,18 @@ def write_sdf(mol, conf, aligned_conf_pos, best_conf_id, outname):
 args = parser.parse_args()
 #Data
 pred_ligand = read_pdb(args.pred_pdb[0])
-ligand_smiles = args.ligand_smiles[0]
+try:
+    ligand_smiles = args.ligand_smiles[0]
+except:
+    ligand_smiles = sdf_to_smiles(args.ligand_sdf[0])
 outdir = args.outdir[0]
 
 #Get a nice conformer
 best_conf, best_conf_pos, best_conf_err, atoms, nonH_inds, mol, best_conf_id  = generate_best_conformer(pred_ligand['chain_coords'], ligand_smiles)
 #Save error
 conf_err = pd.DataFrame()
-conf_err['id'] = [args.pred_pdb[0].split('/')[-1].split('_')[0]]
+#conf_err['id'] = [args.pred_pdb[0].split('/')[-1].split('_')[0]]
+conf_err['id'] = [args.pred_pdb[0].split('/')[-1].split('.')[1]] # id is the ligand name
 conf_err['conformer_dmat_err'] = best_conf_err
 conf_err.to_csv(outdir+'conformer_dmat_err.csv', index=None)
 #Align it to the prediction
